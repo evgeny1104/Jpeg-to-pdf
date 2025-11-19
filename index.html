@@ -23,14 +23,19 @@
     <!-- PDF & ZIP Utilities -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      // Configure PDF.js worker
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-    <!-- React Dependencies & Babel for JSX -->
+    <!-- React Dependencies (UMD) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
@@ -57,12 +62,20 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background: #94a3b8; 
         }
+        /* Hide scrollbar for clean UI in grid but allow scroll */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
     </style>
 <script type="importmap">
 {
   "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
     "react/": "https://aistudiocdn.com/react@^19.2.0/"
   }
 }
@@ -72,6 +85,9 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // Explicitly get React globals to avoid ReferenceError
+        const React = window.React;
+        const ReactDOM = window.ReactDOM;
         const { useState, useRef, useEffect } = React;
 
         // --- Constants ---
@@ -81,6 +97,24 @@
         };
 
         // --- Utils ---
+
+        const readFileAsDataURL = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        };
+
+        const getImageProperties = (url) => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve({ width: img.width, height: img.height });
+                img.onerror = reject;
+                img.src = url;
+            });
+        };
         
         // PDF to JPEG
         const convertPdfToJpeg = async (file) => {
@@ -120,13 +154,13 @@
         };
 
         // JPEG to PDF
-        const convertJpegToPdf = async (orderedFiles) => {
+        const convertJpegToPdf = async (files) => {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
             // Process files in order
-            for (let i = 0; i < orderedFiles.length; i++) {
-                const file = orderedFiles[i].file; // Extract File object from wrapper
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
                 const imgData = await readFileAsDataURL(file);
                 const imgProps = await getImageProperties(imgData);
 
@@ -172,24 +206,6 @@
                 url: URL.createObjectURL(content),
                 blob: content
             };
-        };
-
-        const readFileAsDataURL = (file) => {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        };
-
-        const getImageProperties = (url) => {
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => resolve({ width: img.width, height: img.height });
-                img.onerror = reject;
-                img.src = url;
-            });
         };
 
         // --- Components ---
@@ -259,11 +275,23 @@
                 if (fileInputRef.current) fileInputRef.current.value = '';
             };
 
-            // Drag and Drop Handlers
+            // Function to move item by button click (Mobile friendly)
+            const moveItem = (index, direction) => {
+                const newImages = [...orderedImages];
+                const targetIndex = index + direction;
+                
+                if (targetIndex < 0 || targetIndex >= newImages.length) return;
+                
+                const temp = newImages[index];
+                newImages[index] = newImages[targetIndex];
+                newImages[targetIndex] = temp;
+                setOrderedImages(newImages);
+            };
+
+            // Drag and Drop Handlers (Desktop)
             const onDragStart = (e, index) => {
                 dragItem.current = index;
                 e.dataTransfer.effectAllowed = "move";
-                // Make the drag image a bit transparent? Browser handles this mostly.
             };
 
             const onDragEnter = (e, index) => {
@@ -301,8 +329,9 @@
                         const resultFiles = await convertPdfToJpeg(files[0]);
                         setResults(resultFiles);
                     } else {
-                        // Pass the ordered list of image wrappers
-                        const resultFile = await convertJpegToPdf(orderedImages);
+                        // Fix: Extract the actual File objects from the wrappers to avoid FileReader error
+                        const filesToConvert = orderedImages.map(item => item.file);
+                        const resultFile = await convertJpegToPdf(filesToConvert);
                         setResults([resultFile]);
                     }
                     setStatus('success');
@@ -356,7 +385,6 @@
                     {/* Content Area */}
                     <div className="flex-1 flex flex-col items-center space-y-4">
                         
-                        {/* Drop/Select Area - Show only if no files selected */}
                         {!hasFiles && (
                             <div 
                                 className="w-full h-32 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer"
@@ -371,11 +399,9 @@
                             </div>
                         )}
 
-                        {/* Selected Files / Preview Area */}
                         {hasFiles && status !== 'success' && (
                             <div className="w-full space-y-4">
                                 
-                                {/* Header for file list */}
                                 <div className="flex justify-between items-center px-1">
                                     <span className="text-sm font-medium text-slate-700">
                                         {mode === ConversionMode.PDF_TO_JPEG 
@@ -388,7 +414,6 @@
                                     </button>
                                 </div>
 
-                                {/* PDF Preview (Simple) */}
                                 {mode === ConversionMode.PDF_TO_JPEG && (
                                     <div className="bg-slate-50 p-4 rounded border border-slate-200 flex items-center justify-center">
                                          <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -397,10 +422,9 @@
                                     </div>
                                 )}
 
-                                {/* JPEG Grid Sortable */}
                                 {mode === ConversionMode.JPEG_TO_PDF && (
                                     <div className="w-full">
-                                        <p className="text-xs text-slate-500 mb-2 text-center">Перетащите, чтобы изменить порядок</p>
+                                        <p className="text-xs text-slate-500 mb-2 text-center">Перетащите или используйте стрелки</p>
                                         <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto custom-scrollbar p-1 bg-slate-50 rounded border border-slate-200">
                                             {orderedImages.map((item, index) => (
                                                 <div
@@ -410,20 +434,44 @@
                                                     onDragEnter={(e) => onDragEnter(e, index)}
                                                     onDragEnd={onDragEnd}
                                                     onDragOver={onDragOver}
-                                                    className="relative aspect-square bg-white border border-slate-300 rounded overflow-hidden cursor-move hover:shadow-md transition-shadow group"
+                                                    className="relative aspect-square bg-white border border-slate-300 rounded overflow-hidden group select-none"
                                                 >
                                                     <img src={item.url} alt={`Page ${index + 1}`} className="w-full h-full object-cover pointer-events-none" />
-                                                    <div className="absolute top-0 left-0 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-br">
+                                                    
+                                                    {/* Page Number Badge */}
+                                                    <div className="absolute top-0 left-0 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-br opacity-80">
                                                         {index + 1}
                                                     </div>
-                                                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all pointer-events-none"></div>
+
+                                                    {/* Controls Overlay */}
+                                                    <div className="absolute bottom-0 left-0 right-0 flex justify-between p-1 bg-black bg-opacity-50 backdrop-blur-[1px]">
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); moveItem(index, -1); }}
+                                                            disabled={index === 0}
+                                                            className={`p-0.5 rounded bg-white/90 text-slate-800 hover:bg-white transition-opacity ${index === 0 ? 'opacity-30 cursor-not-allowed' : 'active:scale-95'}`}
+                                                            aria-label="Move left"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                                            </svg>
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); moveItem(index, 1); }}
+                                                            disabled={index === orderedImages.length - 1}
+                                                            className={`p-0.5 rounded bg-white/90 text-slate-800 hover:bg-white transition-opacity ${index === orderedImages.length - 1 ? 'opacity-30 cursor-not-allowed' : 'active:scale-95'}`}
+                                                            aria-label="Move right"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
                                     </div>
                                 )}
                                 
-                                {/* Action Button */}
                                 <button
                                     onClick={handleConvert}
                                     disabled={status === 'processing'}
@@ -446,7 +494,6 @@
                             </div>
                         )}
 
-                        {/* Results Area */}
                         {status === 'success' && results.length > 0 && (
                             <div className="w-full text-center space-y-4 animate-fade-in">
                                 <div className="p-4 bg-green-50 rounded-lg border border-green-100">

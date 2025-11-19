@@ -61,6 +61,19 @@ const App: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Mobile friendly move function
+  const moveItem = (index: number, direction: number) => {
+    const newImages = [...orderedImages];
+    const targetIndex = index + direction;
+    
+    if (targetIndex < 0 || targetIndex >= newImages.length) return;
+    
+    const temp = newImages[index];
+    newImages[index] = newImages[targetIndex];
+    newImages[targetIndex] = temp;
+    setOrderedImages(newImages);
+  };
+
   // Drag Handlers
   const onDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
     dragItem.current = index;
@@ -102,16 +115,9 @@ const App: React.FC = () => {
         const resultFiles = await convertPdfToJpeg(files[0]);
         setResults(resultFiles);
       } else {
-        // We need to adjust utils/converter to accept our object structure or map back to File[]
-        // Assuming updated utility accepts the array of wrappers for order preservation
-        // Or we map it here:
-        // const filesToConvert = orderedImages.map(img => img.file);
-        // For now, let's assume logic handles it or we map it. 
-        // Since index.html logic was updated to take `orderedFiles`, we do similar logic here conceptually.
-        // In a real split file setup, I'd update utils too, but here I am mirroring index.html behavior.
-        
-        // Using `any` cast to simulate the call as per index.html implementation
-        const resultFile = await convertJpegToPdf(orderedImages as any); 
+        // Extract File objects from the ordered wrapper objects
+        const filesToConvert = orderedImages.map(item => item.file);
+        const resultFile = await convertJpegToPdf(filesToConvert); 
         setResults([resultFile]);
       }
       setStatus('success');
@@ -205,7 +211,7 @@ const App: React.FC = () => {
 
                 {mode === ConversionMode.JPEG_TO_PDF && (
                     <div className="w-full">
-                        <p className="text-xs text-slate-500 mb-2 text-center">Перетащите, чтобы изменить порядок</p>
+                        <p className="text-xs text-slate-500 mb-2 text-center">Перетащите или используйте стрелки</p>
                         <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto p-1 bg-slate-50 rounded border border-slate-200">
                             {orderedImages.map((item, index) => (
                                 <div
@@ -215,13 +221,36 @@ const App: React.FC = () => {
                                     onDragEnter={(e) => onDragEnter(e, index)}
                                     onDragEnd={onDragEnd}
                                     onDragOver={onDragOver}
-                                    className="relative aspect-square bg-white border border-slate-300 rounded overflow-hidden cursor-move hover:shadow-md transition-shadow group"
+                                    className="relative aspect-square bg-white border border-slate-300 rounded overflow-hidden group select-none"
                                 >
                                     <img src={item.url} alt={`Page ${index + 1}`} className="w-full h-full object-cover pointer-events-none" />
-                                    <div className="absolute top-0 left-0 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-br">
+                                    
+                                    {/* Number Badge */}
+                                    <div className="absolute top-0 left-0 bg-blue-600 text-white text-[10px] px-1.5 py-0.5 rounded-br opacity-80">
                                         {index + 1}
                                     </div>
-                                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all pointer-events-none"></div>
+
+                                    {/* Mobile Controls */}
+                                    <div className="absolute bottom-0 left-0 right-0 flex justify-between p-1 bg-black bg-opacity-50 backdrop-blur-[1px]">
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); moveItem(index, -1); }}
+                                            disabled={index === 0}
+                                            className={`p-0.5 rounded bg-white/90 text-slate-800 hover:bg-white transition-opacity ${index === 0 ? 'opacity-30 cursor-not-allowed' : 'active:scale-95'}`}
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                            </svg>
+                                        </button>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); moveItem(index, 1); }}
+                                            disabled={index === orderedImages.length - 1}
+                                            className={`p-0.5 rounded bg-white/90 text-slate-800 hover:bg-white transition-opacity ${index === orderedImages.length - 1 ? 'opacity-30 cursor-not-allowed' : 'active:scale-95'}`}
+                                        >
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
